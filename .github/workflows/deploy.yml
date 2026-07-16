@@ -12,4 +12,6 @@ jobs:
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
+      - name: Apply persistent .env if present
+        run: '[ -f ~/secrets/BillCraft.env ] && cp ~/secrets/BillCraft.env .env || true'
       - run: docker compose up -d --build
