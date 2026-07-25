@@ -140,9 +140,11 @@ def view_preview(token):
         return redirect(url_for('index'))
     entry = _pending[token]
     client_email = get_client_email(entry['client_name'])
+    client_cc_emails = get_client_cc_emails(entry['client_name'])
     return render_template('preview.html', token=token,
                            filename=entry['filename'],
-                           client_email=client_email)
+                           client_email=client_email,
+                           client_cc_emails=client_cc_emails)
 
 
 @app.route('/pdf/<token>')
@@ -176,13 +178,16 @@ def email_invoice(token):
         return f'No email on file for {entry["client_name"]}', 400
     try:
         biz = load_business_info()
-        cc_emails = get_client_cc_emails(entry['client_name'])
-        send_invoice(client_email, entry['filename'], entry['data'], biz,
-                     entry['invoice_num'], cc_emails)
+        payload = request.get_json(silent=True) or {}
+        to_email = (payload.get('to_email') or '').strip() or client_email
+        cc_emails = [e.strip() for e in payload.get('cc_emails', []) if e and e.strip()]
+        message = (payload.get('message') or '').strip()
+        send_invoice(to_email, entry['filename'], entry['data'], biz,
+                     entry['invoice_num'], cc_emails, message)
         if not entry['committed']:
             increment_invoice_counter()
             entry['committed'] = True
-        return jsonify(ok=True, email=client_email)
+        return jsonify(ok=True, email=to_email)
     except Exception as e:
         return str(e), 500
 

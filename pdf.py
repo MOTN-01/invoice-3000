@@ -112,19 +112,29 @@ def generate_invoice(invoicee, address, works, price, invoice_number, material, 
     c.drawRightString(PRICE_X, y - 4, f"${Decimal(price):.2f}")
     y -= h1 + 10
 
-    c.setStrokeColor(DIVIDER)
-    c.setLineWidth(0.5)
-    c.line(MARGIN, y, PAGE_W - MARGIN, y)
+    has_materials = bool(material.strip()) or Decimal(material_price) != 0
 
-    # ── Materials row ────────────────────────────────────────────────────────
-    y -= 10
-    p2 = Paragraph(f"<b>Materials</b> — {esc(material)}", body)
-    _, h2 = p2.wrapOn(c, DESC_W, 600)
-    p2.drawOn(c, MARGIN + 10, y - h2)
-    c.setFont("Helvetica", 10)
-    c.setFillColor(BLACK)
-    c.drawRightString(PRICE_X, y - 4, f"${Decimal(material_price):.2f}")
-    y -= h2 + 20
+    if has_materials:
+        c.setStrokeColor(DIVIDER)
+        c.setLineWidth(0.5)
+        c.line(MARGIN, y, PAGE_W - MARGIN, y)
+
+        # ── Materials row ────────────────────────────────────────────────────
+        y -= 14
+        c.setFont("Helvetica-Bold", 9)
+        c.setFillColor(GRAY)
+        c.drawString(MARGIN + 10, y, "MATERIALS")
+        c.setFont("Helvetica", 10)
+        c.setFillColor(BLACK)
+        c.drawRightString(PRICE_X, y - 1, f"${Decimal(material_price):.2f}")
+
+        y -= 14
+        p2 = Paragraph(esc(material), body)
+        _, h2 = p2.wrapOn(c, DESC_W, 600)
+        p2.drawOn(c, MARGIN + 10, y - h2)
+        y -= h2 + 20
+    else:
+        y -= 20
 
     # ── Total ────────────────────────────────────────────────────────────────
     c.setStrokeColor(ACCENT)

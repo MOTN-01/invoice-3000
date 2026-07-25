@@ -27,10 +27,6 @@
             color: var(--text-muted);
             font-weight: 500;
         }
-        .email-label {
-            font-size: 16px;
-            color: var(--text-muted);
-        }
         embed.pdf-embed {
             flex: 1;
             width: 100%;
@@ -38,6 +34,30 @@
             border-radius: var(--radius);
             min-height: 0;
         }
+        .cc-rows {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .cc-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .cc-row select { flex: 1; }
+        .cc-row .cc-custom-input { flex: 1; }
+        .btn-remove-cc {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 18px;
+            font-family: inherit;
+            line-height: 1;
+            cursor: pointer;
+            padding: 0 4px;
+            flex-shrink: 0;
+        }
+        .btn-remove-cc:hover { color: var(--accent); }
     </style>
 </head>
 <body>
@@ -53,13 +73,7 @@
             <a href="/" class="btn-secondary">← Back</a>
             <span class="preview-filename">{{ filename }}</span>
             <span class="spacer"></span>
-            {% if client_email %}
-            <span class="email-label">{{ client_email }}</span>
-            <button type="button" class="btn-secondary" id="email-btn">Email</button>
-            {% else %}
-            <span class="email-label">No email on file</span>
-            <button type="button" class="btn-secondary" disabled>Email</button>
-            {% endif %}
+            <button type="button" class="btn-secondary" id="email-btn" {% if not client_email %}disabled{% endif %}>Send Email</button>
             <a href="{{ url_for('download', token=token) }}" class="btn-primary" id="download-btn">Download</a>
         </div>
         <embed class="pdf-embed"
@@ -67,33 +81,145 @@
                type="application/pdf">
     </div>
 
+    {% if client_email %}
+    <div id="send-email-modal" class="modal-overlay" style="display:none">
+        <div class="modal">
+            <div class="modal-title">Send Invoice by Email</div>
+
+            <label>To</label>
+            <input type="email" id="email-to-input" value="{{ client_email }}">
+
+            <label>CC</label>
+            <div class="cc-rows" id="cc-rows"></div>
+            <button type="button" class="btn-secondary btn-add-cc" id="add-cc-btn">+ Add CC</button>
+
+            <label>Message (optional)</label>
+            <textarea id="email-message" rows="3" placeholder="Add a note to include in the email…"></textarea>
+
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" id="cancel-email-btn">Cancel</button>
+                <button type="button" class="btn-primary" id="send-email-btn">Send</button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
 <script>
 document.getElementById('download-btn').addEventListener('click', () => {
     sessionStorage.removeItem('invoiceFormDraft');
 });
 
 {% if client_email %}
-document.getElementById('email-btn').addEventListener('click', async () => {
-    const btn = document.getElementById('email-btn');
+const clientCcEmails = {{ client_cc_emails | tojson }};
+const CUSTOM = '__custom__';
+
+function nextUnusedCc() {
+    const used = new Set(
+        Array.from(document.querySelectorAll('.cc-select')).map(s => s.value)
+    );
+    return clientCcEmails.find(e => !used.has(e)) || CUSTOM;
+}
+
+function addCcRow(preselect = CUSTOM) {
+    const row = document.createElement('div');
+    row.className = 'cc-row';
+
+    const select = document.createElement('select');
+    select.className = 'cc-select';
+    clientCcEmails.forEach(email => select.add(new Option(email, email)));
+    select.add(new Option('Custom…', CUSTOM));
+    select.value = preselect;
+
+    const customInput = document.createElement('input');
+    customInput.type = 'email';
+    customInput.className = 'cc-custom-input';
+    customInput.placeholder = 'cc@example.com';
+    customInput.style.display = select.value === CUSTOM ? '' : 'none';
+
+    select.addEventListener('change', () => {
+        if (select.value === CUSTOM) {
+            customInput.style.display = '';
+            customInput.focus();
+        } else {
+            customInput.style.display = 'none';
+            customInput.value = '';
+        }
+    });
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'btn-remove-cc';
+    removeBtn.textContent = '×';
+    removeBtn.addEventListener('click', () => row.remove());
+
+    row.append(select, customInput, removeBtn);
+    document.getElementById('cc-rows').appendChild(row);
+}
+
+document.getElementById('add-cc-btn').addEventListener('click', () => addCcRow(nextUnusedCc()));
+
+function resetEmailModal() {
+    document.getElementById('email-to-input').value = {{ client_email | tojson }};
+    document.getElementById('cc-rows').innerHTML = '';
+    document.getElementById('email-message').value = '';
+    if (clientCcEmails.length > 0) addCcRow(clientCcEmails[0]);
+}
+
+function collectCcEmails() {
+    const emails = [];
+    document.querySelectorAll('.cc-row').forEach(row => {
+        const select = row.querySelector('.cc-select');
+        let value = select.value;
+        if (value === CUSTOM) {
+            value = row.querySelector('.cc-custom-input').value.trim();
+        }
+        if (value) emails.push(value);
+    });
+    return [...new Set(emails)];
+}
+
+const modal = document.getElementById('send-email-modal');
+
+document.getElementById('email-btn').addEventListener('click', () => {
+    resetEmailModal();
+    modal.style.display = 'flex';
+});
+
+document.getElementById('cancel-email-btn').addEventListener('click', () => {
+    modal.style.display = 'none';
+});
+
+modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+
+document.getElementById('send-email-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('send-email-btn');
     const original = btn.textContent;
     btn.textContent = 'Sending…';
     btn.disabled = true;
 
     try {
-        const res = await fetch('/email/{{ token }}', { method: 'POST' });
+        const res = await fetch('/email/{{ token }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                to_email: document.getElementById('email-to-input').value.trim(),
+                cc_emails: collectCcEmails(),
+                message: document.getElementById('email-message').value.trim()
+            })
+        });
         if (res.ok) {
             const { email } = await res.json();
-            btn.textContent = `Sent to ${email} ✓`;
+            modal.style.display = 'none';
+            document.getElementById('email-btn').textContent = `Sent to ${email} ✓`;
             sessionStorage.removeItem('invoiceFormDraft');
         } else {
-            btn.textContent = original;
-            btn.disabled = false;
             alert('Error: ' + await res.text());
         }
     } catch (err) {
+        alert('Network error: ' + err.message);
+    } finally {
         btn.textContent = original;
         btn.disabled = false;
-        alert('Network error: ' + err.message);
     }
 });
 {% endif %}
